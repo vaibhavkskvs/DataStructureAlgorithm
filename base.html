@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Delivery Slot Scheduling System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="page-shell">
+        <header class="hero">
+            <div class="hero-copy">
+                <p class="eyebrow">DSA PBL Project</p>
+                <h1>Dynamic Delivery Slot Scheduling System</h1>
+                <p class="hero-text">
+                    A live dispatch simulator that schedules deliveries using a graph, Dijkstra's
+                    shortest path, heap-based priority queue, hash maps, and queue-based slot handling.
+                </p>
+            </div>
+            <div class="hero-note">
+                <p>Scheduler Rule</p>
+                <strong>Priority first, then nearest feasible driver, free slot, and shortest path ETA</strong>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <section class="flash-stack" aria-label="Status messages">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </section>
+            {% endif %}
+        {% endwith %}
+
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>
