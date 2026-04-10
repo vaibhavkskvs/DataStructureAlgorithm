@@ -8,7 +8,12 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 from delivery_core import DeliveryManagementSystem, build_demo_system
 
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, "templates")
+)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dynamic-delivery-slot-scheduling-secret")
 
 SYSTEM_STORE: Dict[str, DeliveryManagementSystem] = {
