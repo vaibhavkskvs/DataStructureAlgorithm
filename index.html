@@ -1,0 +1,506 @@
+﻿{% extends "base.html" %}
+
+{% block content %}
+<datalist id="location-options">
+    {% for location in locations %}
+        <option value="{{ location }}"></option>
+    {% endfor %}
+</datalist>
+
+<section class="stats-grid stats-grid-wide">
+    <article class="stat-card accent-orange">
+        <span>Road Network</span>
+        <strong>{{ counts.locations }}</strong>
+        <small>{{ counts.roads }} weighted roads</small>
+    </article>
+    <article class="stat-card accent-teal">
+        <span>Drivers</span>
+        <strong>{{ counts.drivers }}</strong>
+        <small>{{ counts.idle_drivers }} idle / {{ counts.busy_drivers }} busy / {{ counts.offline_drivers }} offline</small>
+    </article>
+    <article class="stat-card accent-blue">
+        <span>Scheduler Queue</span>
+        <strong>{{ counts.queued_orders }}</strong>
+        <small>{{ counts.waiting_orders }} waiting / {{ counts.delayed_orders }} delayed</small>
+    </article>
+    <article class="stat-card accent-sky">
+        <span>Waiting Queue</span>
+        <strong>{{ counts.waiting_orders }}</strong>
+        <small>Slot-blocked orders still in heap</small>
+    </article>
+    <article class="stat-card accent-gold">
+        <span>Live Dispatch</span>
+        <strong>{{ counts.assigned_orders + counts.in_transit_orders }}</strong>
+        <small>{{ counts.assigned_orders }} assigned / {{ counts.in_transit_orders }} in transit</small>
+    </article>
+    <article class="stat-card accent-rose">
+        <span>Completed Queue</span>
+        <strong>{{ counts.completed_orders }}</strong>
+        <small>{{ counts.delayed_orders }} delayed in backlog</small>
+    </article>
+</section>
+
+<section class="ops-grid">
+    <article class="panel command-panel">
+        <p class="section-label">Simulation Controls</p>
+        <h2>Run the scheduler like a dispatch room</h2>
+        <p class="panel-text">
+            New orders trigger auto-assignment immediately. Use the controls below to load the demo,
+            assign another queued order, or reset the whole system.
+        </p>
+        <div class="action-row action-row-stacked">
+            <form method="post" action="{{ url_for('load_demo') }}">
+                <button class="button button-primary" type="submit">Start Simulation</button>
+            </form>
+            <form method="post" action="{{ url_for('assign_order') }}">
+                <button class="button button-secondary" type="submit">Assign Next Order</button>
+            </form>
+            <form method="post" action="{{ url_for('reset_system') }}">
+                <button class="button button-ghost" type="submit">Reset System</button>
+            </form>
+        </div>
+        <div class="algorithm-rules">
+            <div class="mini-chip">Heap priority queue ranks urgent orders first</div>
+            <div class="mini-chip">Dijkstra supplies route distance and ETA</div>
+            <div class="mini-chip">Hash maps update drivers and orders instantly</div>
+            <div class="mini-chip">Waiting queue keeps slot-blocked orders visible</div>
+        </div>
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Slot Summary</p>
+        <h2>Delivery window feasibility</h2>
+        <div class="slot-grid">
+            {% for slot in slot_summary %}
+                <div class="slot-card">
+                    <strong>{{ slot.label }}</strong>
+                    <span>{{ slot.available_drivers }} free drivers</span>
+                    <small>{{ slot.waiting_count }} waiting orders</small>
+                </div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Activity Queue</p>
+        <h2>Recent scheduler events</h2>
+        {% if activity_log %}
+            <div class="feed-stack">
+                {% for message in activity_log %}
+                    <div class="feed-item">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No events yet. Start the simulation to watch the algorithm work.</p>
+        {% endif %}
+    </article>
+</section>
+
+<section class="controls-grid">
+    <article class="panel wide-panel">
+        <p class="section-label">Order Intake</p>
+        <h2>Create a delivery request with a fixed slot</h2>
+        <p class="panel-text">The scheduler will calculate the shortest route, estimate the delivery time, and auto-check driver slot feasibility after submission.</p>
+        <form method="post" action="{{ url_for('create_order') }}" class="form-grid-three">
+            <label>
+                <span>Order ID</span>
+                <input type="text" name="order_id" placeholder="e.g. O401" required>
+            </label>
+            <label>
+                <span>Customer Name</span>
+                <input type="text" name="customer_name" placeholder="e.g. Rahul" required>
+            </label>
+            <label>
+                <span>Package Type</span>
+                <input type="text" name="package_type" placeholder="e.g. Electronics" required>
+            </label>
+            <label>
+                <span>Source</span>
+                <input type="text" name="source" list="location-options" placeholder="e.g. Warehouse" required>
+            </label>
+            <label>
+                <span>Destination</span>
+                <input type="text" name="destination" list="location-options" placeholder="e.g. Campus" required>
+            </label>
+            <label>
+                <span>Priority</span>
+                <select name="priority" required>
+                    {% for option in priority_options %}
+                        <option value="{{ option }}">{{ option.title() }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                <span>Requested Slot</span>
+                <select name="requested_slot" required>
+                    {% for slot in slot_options %}
+                        <option value="{{ slot }}">{{ slot }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="form-note-card">
+                <span class="section-label">ETA Rule</span>
+                <strong>Estimated delivery time is computed from the shortest path distance.</strong>
+                <small>Pickup travel, route travel, and a service buffer must fit inside the selected slot.</small>
+            </div>
+            <div class="form-submit-row">
+                <button class="button button-primary" type="submit">Create and Auto-Schedule</button>
+            </div>
+        </form>
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Driver Registry</p>
+        <h2>Add slot-aware driver</h2>
+        <form method="post" action="{{ url_for('add_driver') }}" class="form-stack">
+            <label>
+                <span>Driver ID</span>
+                <input type="text" name="driver_id" placeholder="e.g. D7" required>
+            </label>
+            <label>
+                <span>Driver Name</span>
+                <input type="text" name="driver_name" placeholder="e.g. Meera" required>
+            </label>
+            <label>
+                <span>Current Location</span>
+                <input type="text" name="driver_location" list="location-options" placeholder="e.g. Market" required>
+            </label>
+            <label>
+                <span>Status</span>
+                <select name="driver_status">
+                    {% for option in driver_status_options %}
+                        <option value="{{ option }}">{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div>
+                <span class="field-label">Available Time Slots</span>
+                <div class="slot-check-grid">
+                    {% for slot in slot_options %}
+                        <label class="check-option">
+                            <input type="checkbox" name="available_slots" value="{{ slot }}" checked>
+                            <span>{{ slot }}</span>
+                        </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <button class="button button-secondary" type="submit">Register Driver</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Network Setup</p>
+        <h2>Grow the delivery graph</h2>
+        <div class="stacked-forms">
+            <form method="post" action="{{ url_for('add_location') }}" class="form-stack inner-form">
+                <label>
+                    <span>Add Location</span>
+                    <input type="text" name="location" placeholder="e.g. City Hub" required>
+                </label>
+                <button class="button button-ghost" type="submit">Add Node</button>
+            </form>
+            <form method="post" action="{{ url_for('add_road') }}" class="form-stack inner-form">
+                <label>
+                    <span>From</span>
+                    <input type="text" name="location_a" list="location-options" placeholder="e.g. Warehouse" required>
+                </label>
+                <label>
+                    <span>To</span>
+                    <input type="text" name="location_b" list="location-options" placeholder="e.g. Station" required>
+                </label>
+                <label>
+                    <span>Road Weight (km)</span>
+                    <input type="number" min="1" name="distance" placeholder="e.g. 6" required>
+                </label>
+                <button class="button button-ghost" type="submit">Add Weighted Edge</button>
+            </form>
+        </div>
+    </article>
+</section>
+
+<section class="route-panel-grid">
+    <article class="panel route-panel wide-panel">
+        <div class="route-panel-header">
+            <div>
+                <p class="section-label">Graph + Dijkstra</p>
+                <h2>Route intelligence and network visualization</h2>
+            </div>
+            <form method="post" action="{{ url_for('shortest_route') }}" class="route-form-inline">
+                <input type="text" name="route_start" list="location-options" placeholder="Start location" required>
+                <input type="text" name="route_end" list="location-options" placeholder="End location" required>
+                <button class="button button-secondary" type="submit">Find Shortest Route</button>
+            </form>
+        </div>
+
+        <div class="route-body">
+            <div class="graph-shell">
+                {% if graph_view.nodes %}
+                    <svg viewBox="0 0 {{ graph_view.width }} {{ graph_view.height }}" class="network-graph" role="img" aria-label="Road network graph">
+                        {% for edge in graph_view.edges %}
+                            <line x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}" class="graph-edge {{ 'highlighted' if edge.highlighted else '' }}"></line>
+                            <text x="{{ edge.label_x }}" y="{{ edge.label_y }}" class="edge-label">{{ edge.distance }}</text>
+                        {% endfor %}
+                        {% for node in graph_view.nodes %}
+                            <circle cx="{{ node.x }}" cy="{{ node.y }}" r="17" class="graph-node {{ 'highlighted' if node.highlighted else '' }}"></circle>
+                            <text x="{{ node.x }}" y="{{ node.y + 34 }}" class="node-label">{{ node.name }}</text>
+                        {% endfor %}
+                    </svg>
+                {% else %}
+                    <p class="empty-state">Add locations and roads to render the route graph.</p>
+                {% endif %}
+            </div>
+
+            <div class="route-details-panel">
+                {% if route_view %}
+                    <p class="section-label">Current Route Focus</p>
+                    <h3>{{ route_view.title }}</h3>
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <span>Delivery Distance</span>
+                            <strong>{{ route_view.distance }} km</strong>
+                        </div>
+                        <div class="metric-card">
+                            <span>Delivery ETA</span>
+                            <strong>{{ route_view.estimated_minutes }} min</strong>
+                        </div>
+                        <div class="metric-card">
+                            <span>Pickup Distance</span>
+                            <strong>{{ route_view.pickup_distance }} km</strong>
+                        </div>
+                        <div class="metric-card">
+                            <span>Total Feasible Time</span>
+                            <strong>{{ route_view.projected_total }} min</strong>
+                        </div>
+                    </div>
+                    <div class="route-callout">
+                        <span class="field-label">Delivery Path</span>
+                        <strong>{{ route_view.path | join(' -> ') }}</strong>
+                    </div>
+                    {% if route_view.pickup_path %}
+                        <div class="route-callout subtle">
+                            <span class="field-label">Pickup Path</span>
+                            <strong>{{ route_view.pickup_path | join(' -> ') }}</strong>
+                        </div>
+                    {% endif %}
+                    <div class="meta-line">
+                        {% if route_view.driver_name %}<span>Driver: {{ route_view.driver_name }}</span>{% endif %}
+                        {% if route_view.slot_label %}<span>Slot: {{ route_view.slot_label }}</span>{% endif %}
+                    </div>
+                {% else %}
+                    <p class="empty-state">Use the route search form or assign an order to highlight the active shortest path here.</p>
+                {% endif %}
+            </div>
+        </div>
+    </article>
+</section>
+
+<section class="board-grid">
+    <article class="panel">
+        <p class="section-label">Driver Availability</p>
+        <h2>Driver operations board</h2>
+        {% if drivers %}
+            <div class="driver-grid">
+                {% for driver in drivers %}
+                    <div class="driver-card">
+                        <div class="card-top">
+                            <strong>{{ driver.driver_id }} - {{ driver.name }}</strong>
+                            <span class="badge status-{{ driver.availability_status|lower|replace(' ', '-') }}">{{ driver.availability_status }}</span>
+                        </div>
+                        <div class="driver-meta">
+                            <span>Current location: {{ driver.current_location }}</span>
+                            <span>Active orders: {{ driver.active_slot_assignments|length }}</span>
+                        </div>
+                        <div class="field-group">
+                            <span class="field-label">Free Slots</span>
+                            <div class="chip-row">
+                                {% for slot in driver.free_slots() %}
+                                    <span class="chip neutral-chip">{{ slot }}</span>
+                                {% else %}
+                                    <span class="chip muted-chip">No free slots</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% if driver.active_slot_assignments %}
+                            <div class="field-group">
+                                <span class="field-label">Active Schedule</span>
+                                <div class="assignment-stack">
+                                    {% for slot, order_id in driver.active_slot_assignments.items() %}
+                                        <div class="assignment-line">{{ slot }} : {{ order_id }}</div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No drivers registered yet.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Priority Queue</p>
+        <h2>Scheduler heap</h2>
+        {% if scheduler_queue %}
+            <div class="order-stack">
+                {% for order in scheduler_queue %}
+                    <div class="order-card">
+                        <div class="card-top">
+                            <strong>{{ order.order_id }} - {{ order.customer_name }}</strong>
+                            <div class="badge-row">
+                                <span class="badge priority-{{ order.priority_label|lower }}">{{ order.priority_label }}</span>
+                                <span class="badge status-{{ order.status|lower|replace(' ', '-') }}">{{ order.status }}</span>
+                            </div>
+                        </div>
+                        <div class="order-meta-grid">
+                            <span>Slot: {{ order.requested_slot }}</span>
+                            <span>Route: {{ order.source }} -> {{ order.destination }}</span>
+                            <span>Distance: {{ order.route_distance|int }} km</span>
+                            <span>ETA: {{ order.estimated_delivery_minutes }} min</span>
+                        </div>
+                        <p class="note-line">{{ order.scheduling_note if order.scheduling_note else 'Queued for scheduler evaluation.' }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No queued orders.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Waiting Queue</p>
+        <h2>Orders blocked by slot feasibility</h2>
+        {% if waiting_orders %}
+            <div class="order-stack">
+                {% for order in waiting_orders %}
+                    <div class="order-card waiting-card">
+                        <div class="card-top">
+                            <strong>{{ order.order_id }} - {{ order.customer_name }}</strong>
+                            <div class="badge-row">
+                                <span class="badge slot-badge">{{ order.requested_slot }}</span>
+                                <span class="badge status-waiting-for-slot">Waiting</span>
+                            </div>
+                        </div>
+                        <div class="order-meta-grid">
+                            <span>Priority: {{ order.priority_label }}</span>
+                            <span>Destination: {{ order.destination }}</span>
+                            <span>Delivery ETA: {{ order.estimated_delivery_minutes }} min</span>
+                            <span>Needed total: {{ order.projected_total_minutes if order.projected_total_minutes else order.estimated_delivery_minutes }} min</span>
+                        </div>
+                        <p class="note-line">{{ order.scheduling_note }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No waiting orders. All current requests are slot-feasible.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Assigned Orders</p>
+        <h2>Ready for dispatch</h2>
+        {% if assigned_orders %}
+            <div class="order-stack">
+                {% for order in assigned_orders %}
+                    <div class="order-card assigned-card">
+                        <div class="card-top">
+                            <strong>{{ order.order_id }} - Driver {{ order.assigned_driver_id }}</strong>
+                            <div class="badge-row">
+                                <span class="badge priority-{{ order.priority_label|lower }}">{{ order.priority_label }}</span>
+                                <span class="badge status-assigned">Assigned</span>
+                            </div>
+                        </div>
+                        <div class="order-meta-grid">
+                            <span>Slot: {{ order.requested_slot }}</span>
+                            <span>Route: {{ order.source }} -> {{ order.destination }}</span>
+                            <span>Pickup: {{ order.pickup_distance|int }} km</span>
+                            <span>Total ETA: {{ order.projected_total_minutes }} min</span>
+                        </div>
+                        <p class="note-line">{{ order.scheduling_note }}</p>
+                        <form method="post" action="{{ url_for('dispatch_order') }}">
+                            <input type="hidden" name="order_id" value="{{ order.order_id }}">
+                            <button class="button button-secondary" type="submit">Start Transit</button>
+                        </form>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No assigned orders waiting to be dispatched.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <p class="section-label">In Transit</p>
+        <h2>Active deliveries</h2>
+        {% if in_transit_orders %}
+            <div class="order-stack">
+                {% for order in in_transit_orders %}
+                    <div class="order-card transit-card">
+                        <div class="card-top">
+                            <strong>{{ order.order_id }} - Driver {{ order.assigned_driver_id }}</strong>
+                            <span class="badge status-in-transit">In Transit</span>
+                        </div>
+                        <div class="order-meta-grid">
+                            <span>Slot: {{ order.requested_slot }}</span>
+                            <span>Destination: {{ order.destination }}</span>
+                            <span>Delivery ETA: {{ order.estimated_delivery_minutes }} min</span>
+                            <span>Priority: {{ order.priority_label }}</span>
+                        </div>
+                        <form method="post" action="{{ url_for('complete_delivery') }}">
+                            <input type="hidden" name="order_id" value="{{ order.order_id }}">
+                            <button class="button button-primary" type="submit">Mark Completed</button>
+                        </form>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No active deliveries in transit.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Completed Queue</p>
+        <h2>Delivered orders</h2>
+        {% if completed_orders %}
+            <div class="order-stack compact-stack">
+                {% for order in completed_orders %}
+                    <div class="order-card completed-card">
+                        <div class="card-top">
+                            <strong>{{ order.order_id }} - {{ order.customer_name }}</strong>
+                            <span class="badge status-completed">Completed</span>
+                        </div>
+                        <div class="order-meta-grid">
+                            <span>Driver: {{ order.assigned_driver_id }}</span>
+                            <span>Destination: {{ order.destination }}</span>
+                            <span>Slot: {{ order.requested_slot }}</span>
+                            <span>Distance: {{ order.route_distance|int }} km</span>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No completed deliveries yet.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <p class="section-label">Delayed Orders</p>
+        <h2>Orders without valid routing</h2>
+        {% if delayed_orders %}
+            <div class="order-stack compact-stack">
+                {% for order in delayed_orders %}
+                    <div class="order-card delayed-card">
+                        <div class="card-top">
+                            <strong>{{ order.order_id }} - {{ order.customer_name }}</strong>
+                            <span class="badge status-delayed">Delayed</span>
+                        </div>
+                        <p class="note-line">{{ order.scheduling_note }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-state">No delayed orders. Every visible order has a valid network path.</p>
+        {% endif %}
+    </article>
+</section>
+{% endblock %}
